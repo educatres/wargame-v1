@@ -168,6 +168,18 @@ output { color: var(--primary); font-weight: 800; }
 .order-item.BLUE { border-left-color: var(--blue); }
 .order-item.RED { border-left-color: var(--red); }
 .order-item.AMBER { border-left-color: var(--amber); }
+.reaction-status {
+  padding: .65rem .75rem; border-radius: .65rem; background: var(--red-soft);
+  color: #713b3b; font-size: .9rem;
+}
+.reaction-status.busy { background: var(--blue-soft); color: var(--primary); }
+.reaction-status.ok { background: var(--green-soft); color: #285a35; }
+.reaction-status.warn { background: var(--warning); color: #6b5513; }
+.reaction-source {
+  display: inline-flex; margin-left: .4rem; padding: .1rem .4rem; border-radius: 99px;
+  background: rgba(154, 71, 71, .12); color: var(--red); font-size: .74rem; font-weight: 800;
+}
+.reaction-summary { margin-top: .35rem; color: var(--muted); font-size: .86rem; }
 
 .narrative { display: grid; gap: .7rem; }
 .turn-log { border-left: 4px solid var(--primary); padding: .7rem .9rem; background: #f7fafc; border-radius: .25rem .75rem .75rem .25rem; }

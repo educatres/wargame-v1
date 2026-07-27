@@ -265,8 +265,10 @@
             </label>
             <div class="full actions">
               <button type="submit" class="primary">提交／更新命令</button>
+              <button type="button" id="redReactionBtn" class="secondary">生成紅方反應</button>
               <button type="button" id="autoOrdersBtn" class="secondary">自動補齊其他角色</button>
             </div>
+            <div id="redReactionStatus" class="full reaction-status" role="status" aria-live="polite">先提交藍方命令，即可生成紅方反應；有輸入 API Key 時會優先使用語言模型。</div>
             <div id="currentOrders" class="full order-list"></div>
           </form>
         </div>

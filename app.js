@@ -82,6 +82,25 @@
     required: ["overview", "objectives", "successCriteria", "constraints", "events", "intel"]
   };
 
+  const RED_REACTION_SCHEMA = {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      action: {
+        type: "string",
+        enum: ["增加空中施壓", "海上臨檢演示", "電磁壓制", "遠程火力展示", "調整封控區", "外交訊息操作"]
+      },
+      zone: {
+        type: "string",
+        enum: ["Z-NW", "Z-CW", "Z-SW", "Z-NE", "Z-E", "Z-SE", "Z-ISL"]
+      },
+      resource: { type: "integer" },
+      rationale: { type: "string" },
+      reaction_summary: { type: "string" }
+    },
+    required: ["action", "zone", "resource", "rationale", "reaction_summary"]
+  };
+
   const ACTIONS = {
     BLUE: [
       ["強化防空警戒", { readiness: 2, command: 1, intel: 1, civilian: 1 }],
@@ -156,7 +175,9 @@
     logs: [],
     revealedIntel: [],
     currentLibrary: "sources",
-    aiBusy: false
+    aiBusy: false,
+    redReactionBusy: false,
+    turnBusy: false
   };
 
   const $ = (id) => document.getElementById(id);
@@ -417,7 +438,13 @@
     ].join("\n");
   }
 
-  function buildAiRequest(prompt, settings) {
+  function buildAiRequest(
+    prompt,
+    settings,
+    schema = AI_SCENARIO_SCHEMA,
+    schemaName = "educational_scenario",
+    systemMessage = "你是課程想定設計助手。嚴格遵守安全界線，輸出繁體中文結構化 JSON。"
+  ) {
     if (settings.apiStyle === "responses") {
       return {
         headers: {
@@ -427,14 +454,14 @@
         body: {
           model: settings.model,
           store: false,
-          instructions: "你是課程想定設計助手。嚴格遵守安全界線，輸出繁體中文結構化 JSON。",
+          instructions: systemMessage,
           input: prompt,
           text: {
             format: {
               type: "json_schema",
-              name: "educational_scenario",
+              name: schemaName,
               strict: true,
-              schema: AI_SCENARIO_SCHEMA
+              schema
             }
           }
         }
@@ -449,7 +476,7 @@
           body: {
             model: settings.model,
             input: [{ type: "text", text: prompt }],
-            response_format: { type: "text", mime_type: "application/json", schema: AI_SCENARIO_SCHEMA },
+            response_format: { type: "text", mime_type: "application/json", schema },
             generation_config: { thinking_level: "minimal" }
           }
         };
@@ -457,11 +484,11 @@
       return {
         headers,
         body: {
-          systemInstruction: { parts: [{ text: "你是課程想定設計助手。嚴格遵守安全界線。" }] },
+          systemInstruction: { parts: [{ text: systemMessage }] },
           contents: [{ role: "user", parts: [{ text: prompt }] }],
           generationConfig: {
             responseMimeType: "application/json",
-            responseJsonSchema: AI_SCENARIO_SCHEMA
+            responseJsonSchema: schema
           }
         }
       };
@@ -477,7 +504,7 @@
       body: {
         model: settings.model,
         max_tokens: 6000,
-        system: "你是課程想定設計助手。嚴格遵守安全界線，只輸出繁體中文 JSON，不要使用 Markdown code fence。",
+        system: `${systemMessage}\n只輸出 JSON，不要使用 Markdown code fence。`,
         messages: [{ role: "user", content: prompt }]
       }
     };
@@ -519,6 +546,38 @@
       if (start >= 0 && end > start) return JSON.parse(text.slice(start, end + 1));
       throw new Error("模型回應不是有效的 JSON。");
     }
+  }
+
+  async function requestStructuredJson(prompt, settings, schema, schemaName, systemMessage, signal) {
+    const request = buildAiRequest(prompt, settings, schema, schemaName, systemMessage);
+    let response;
+    try {
+      response = await fetch(settings.endpoint, {
+        method: "POST",
+        headers: request.headers,
+        body: JSON.stringify(request.body),
+        signal
+      });
+    } catch (error) {
+      if (error.name === "AbortError") throw error;
+      throw new Error(`無法連線到 ${settings.label}：${error.message || "請檢查網路、CORS 或 endpoint"}`);
+    }
+
+    const responseText = await response.text();
+    let responseJson;
+    try {
+      responseJson = JSON.parse(responseText);
+    } catch {
+      throw new Error(`API 回應不是 JSON：${responseText.slice(0, 160)}`);
+    }
+    if (!response.ok) {
+      const detail = responseJson.error?.message || responseJson.error?.type || responseJson.message || `HTTP ${response.status}`;
+      throw new Error(String(detail));
+    }
+
+    const outputText = extractModelText(responseJson);
+    if (!outputText) throw new Error("API 回應中沒有可解析的模型文字。");
+    return parseModelJson(outputText);
   }
 
   function normalizeTextArray(value, fallback, minItems = 3, maxItems = 6) {
@@ -592,28 +651,15 @@
     const timeoutId = setTimeout(() => controller.abort(), 120000);
     try {
       const formValues = readScenarioForm();
-      const request = buildAiRequest(buildAiPrompt(formValues), settings);
-      const response = await fetch(settings.endpoint, {
-        method: "POST",
-        headers: request.headers,
-        body: JSON.stringify(request.body),
-        signal: controller.signal
-      });
-      const responseText = await response.text();
-      let responseJson;
-      try {
-        responseJson = JSON.parse(responseText);
-      } catch {
-        throw new Error(`API 回應不是 JSON：${responseText.slice(0, 160)}`);
-      }
-      if (!response.ok) {
-        const detail = responseJson.error?.message || responseJson.error?.type || responseJson.message || `HTTP ${response.status}`;
-        throw new Error(String(detail));
-      }
-
-      const outputText = extractModelText(responseJson);
-      if (!outputText) throw new Error("API 回應中沒有可解析的模型文字。");
-      const scenario = normalizeAiScenario(parseModelJson(outputText), formValues);
+      const rawScenario = await requestStructuredJson(
+        buildAiPrompt(formValues),
+        settings,
+        AI_SCENARIO_SCHEMA,
+        "educational_scenario",
+        "你是課程想定設計助手。嚴格遵守安全界線，輸出繁體中文結構化 JSON。",
+        controller.signal
+      );
+      const scenario = normalizeAiScenario(rawScenario, formValues);
       scenario.aiGenerated = {
         provider: settings.shortLabel,
         model: settings.model,
@@ -778,7 +824,8 @@
     updateActionOptions();
     const finished = state.currentTurn > state.scenario.turns;
     [...$("orderForm").elements].forEach(el => el.disabled = finished);
-    $("resolveTurnBtn").disabled = finished;
+    $("resolveTurnBtn").disabled = finished || state.turnBusy;
+    renderRedReactionStatus();
   }
 
   function updateActionOptions() {
@@ -797,8 +844,41 @@
     orderList.innerHTML = values.map(order => `
       <div class="order-item ${order.actor}">
         <strong>${actorLabel(order.actor)}：${escapeHtml(order.action)}</strong>
+        ${order.actor === "RED" && order.reactionSource ? `<span class="reaction-source">${order.reactionSource === "ai" ? `AI · ${escapeHtml(order.reactionProvider || "語言模型")}` : order.reactionSource === "rules-fallback" ? "規則備援" : "規則生成"}</span>` : ""}
         <div>${zoneName(order.zone)} · 資源 ${order.resource} · ${escapeHtml(order.rationale || "未填寫理由")}</div>
+        ${order.reactionSummary ? `<div class="reaction-summary"><strong>反應摘要：</strong>${escapeHtml(order.reactionSummary)}</div>` : ""}
       </div>`).join("");
+  }
+
+  function setRedReactionStatus(message, type = "") {
+    const node = $("redReactionStatus");
+    node.textContent = message;
+    node.className = `full reaction-status ${type}`.trim();
+  }
+
+  function renderRedReactionStatus() {
+    const current = state.orders[state.currentTurn] || {};
+    const button = $("redReactionBtn");
+    const finished = !state.scenario || state.currentTurn > state.scenario.turns;
+    button.disabled = finished || !current.BLUE || state.redReactionBusy || state.turnBusy;
+    button.textContent = state.redReactionBusy
+      ? "生成反應中…"
+      : current.RED?.reactionSource ? "重新生成紅方反應" : "生成紅方反應";
+
+    if (finished) return setRedReactionStatus("本次推演已完成。", "");
+    if (state.redReactionBusy) return setRedReactionStatus("正在依藍方命令產生紅方反應…", "busy");
+    if (!current.BLUE) return setRedReactionStatus("先提交藍方命令，即可生成紅方反應；有輸入 API Key 時會優先使用語言模型。", "");
+    if (!current.RED) return setRedReactionStatus("藍方命令已提交。可生成紅方反應；未輸入 API Key 時使用規則生成。", "");
+    if (current.RED.reactionSource === "ai") {
+      return setRedReactionStatus(`已使用 ${current.RED.reactionProvider || "語言模型"} 生成紅方反應，可再生成或手動修改。`, "ok");
+    }
+    if (current.RED.reactionSource === "rules-fallback") {
+      return setRedReactionStatus(`語言模型無法完成，已改用規則反應。${current.RED.reactionError || ""}`, "warn");
+    }
+    if (current.RED.reactionSource === "rules") {
+      return setRedReactionStatus("已使用離線規則生成紅方反應，可再生成或手動修改。", "ok");
+    }
+    setRedReactionStatus("目前紅方命令為手動輸入；生成紅方反應會取代此命令。", "warn");
   }
 
   function currentIntel() {
@@ -872,13 +952,152 @@
     toast(`${actorLabel(actor)}命令已提交。`);
   }
 
-  function autoFillOrders() {
+  function buildRuleBasedRedReaction(blueOrder, source = "rules") {
+    const mapping = {
+      "強化防空警戒": ["電磁壓制", "以資訊與指揮壓力測試藍方警戒負荷。"],
+      "商船護航": ["調整封控區", "改變抽象封控壓力，增加航運協調與民事決策負荷。"],
+      "分散部署": ["外交訊息操作", "以公開訊息與政治壓力回應藍方分散行動。"],
+      "備援通訊": ["電磁壓制", "提高抽象通訊壓力，觀察藍方備援與指揮韌性。"],
+      "後勤修復": ["調整封控區", "調整區域壓力，使藍方重新分配後勤與民事資源。"],
+      "情報融合": ["外交訊息操作", "製造相互競爭的公開訊號，增加判讀與溝通成本。"]
+    };
+    const selected = mapping[blueOrder.action] || ["增加空中施壓", "維持抽象區域壓力並觀察藍方後續決策。"];
+    const validZone = blueOrder.zone !== "Z-REAR" && DATA.zones.some(zone => zone.zone_id === blueOrder.zone)
+      ? blueOrder.zone
+      : "Z-CW";
+    const available = Number(state.status.RED?.resources ?? 100);
+    const resource = available < 25 ? 10 : clamp(Math.round(14 + Number(blueOrder.resource || 20) * 0.35), 10, 28);
+    return {
+      actor: "RED",
+      action: selected[0],
+      zone: validZone,
+      resource,
+      rationale: `規則反應：針對藍方「${blueOrder.action}」，${selected[1]}`,
+      reactionSummary: selected[1],
+      reactionSource: source,
+      reactionTo: { action: blueOrder.action, zone: blueOrder.zone },
+      submittedAt: new Date().toISOString()
+    };
+  }
+
+  function buildRedReactionPrompt(blueOrder) {
+    const event = state.scenario.events.find(item => Number(item.trigger_turn) === state.currentTurn);
+    const allowedActions = ACTIONS.RED.map(([name]) => name);
+    const allowedZones = DATA.zones.filter(zone => zone.zone_id !== "Z-REAR").map(zone => ({ id: zone.zone_id, name: zone.zone_name }));
+    const context = {
+      scenario: state.scenario.name,
+      turn: state.currentTurn,
+      total_turns: state.scenario.turns,
+      teaching_focus: state.scenario.focusTitle,
+      difficulty: state.scenario.difficultyLabel,
+      blue_order: {
+        action: blueOrder.action,
+        zone: blueOrder.zone,
+        resource: blueOrder.resource,
+        rationale: blueOrder.rationale || "未提供"
+      },
+      current_event: event ? `${event.event_name}：${event.description}` : "無預排事件",
+      abstract_status: {
+        red_readiness: round1(state.status.RED.readiness),
+        red_sustainment: round1(state.status.RED.sustainment),
+        red_resources: round1(state.status.RED.resources),
+        civilian_risk: round1(state.status.BLUE.civilianRisk)
+      },
+      allowed_actions: allowedActions,
+      allowed_zones: allowedZones
+    };
+    return [
+      "請為課堂回合推演產生一項紅方反應，並只輸出符合 JSON schema 的物件。",
+      "action 必須逐字選自 allowed_actions，zone 必須選自 allowed_zones 的 id，resource 為 5 到 35 的整數。",
+      "反應需針對藍方本回合命令，兼顧資源、民事影響、情報不確定性與升級控制。",
+      "內容必須是抽象、合成的教學敘事，不得提供精確座標、真實部署、現役庫存、武器弱點、射擊參數或可直接執行的作戰指令。",
+      "rationale 說明選擇原因；reaction_summary 用一至兩句繁體中文描述學生可觀察的反應。",
+      `回合資料：${JSON.stringify(context)}`
+    ].join("\n");
+  }
+
+  function normalizeAiRedReaction(raw, blueOrder, settings) {
+    const fallback = buildRuleBasedRedReaction(blueOrder);
+    const allowedActions = new Set(ACTIONS.RED.map(([name]) => name));
+    const allowedZones = new Set(DATA.zones.filter(zone => zone.zone_id !== "Z-REAR").map(zone => zone.zone_id));
+    return {
+      actor: "RED",
+      action: allowedActions.has(raw?.action) ? raw.action : fallback.action,
+      zone: allowedZones.has(raw?.zone) ? raw.zone : fallback.zone,
+      resource: clamp(Math.round(Number(raw?.resource) || fallback.resource), 5, 35),
+      rationale: String(raw?.rationale || fallback.rationale).trim().slice(0, 360),
+      reactionSummary: String(raw?.reaction_summary || fallback.reactionSummary).trim().slice(0, 300),
+      reactionSource: "ai",
+      reactionProvider: `${settings.shortLabel} / ${settings.model}`,
+      reactionTo: { action: blueOrder.action, zone: blueOrder.zone },
+      submittedAt: new Date().toISOString()
+    };
+  }
+
+  async function generateRedReaction(options = {}) {
+    if (!state.scenario || state.currentTurn > state.scenario.turns || state.redReactionBusy) return null;
+    state.orders[state.currentTurn] ||= {};
+    const blueOrder = state.orders[state.currentTurn].BLUE;
+    if (!blueOrder) {
+      setRedReactionStatus("請先提交藍方命令，再生成紅方反應。", "warn");
+      if (options.showToast !== false) toast("請先提交藍方命令。");
+      return null;
+    }
+
+    state.redReactionBusy = true;
+    renderRedReactionStatus();
+    const hasApiKey = Boolean($("apiKey").value.trim());
+    let reaction;
+    let settings = null;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 120000);
+    try {
+      if (hasApiKey) {
+        settings = requireApiSettings();
+        if (!settings) throw new Error("API 設定不完整");
+        const raw = await requestStructuredJson(
+          buildRedReactionPrompt(blueOrder),
+          settings,
+          RED_REACTION_SCHEMA,
+          "red_force_reaction",
+          "你是教育用回合推演的紅方反應設計助手。只可使用指定的抽象行動與區域，並嚴格遵守安全界線。",
+          controller.signal
+        );
+        reaction = normalizeAiRedReaction(raw, blueOrder, settings);
+      } else {
+        reaction = buildRuleBasedRedReaction(blueOrder);
+      }
+    } catch (error) {
+      reaction = buildRuleBasedRedReaction(blueOrder, "rules-fallback");
+      reaction.reactionError = error.name === "AbortError"
+        ? "API 等候超過 120 秒。"
+        : `原因：${String(error.message || "未知錯誤").slice(0, 140)}`;
+    } finally {
+      clearTimeout(timeoutId);
+      state.redReactionBusy = false;
+    }
+
+    state.orders[state.currentTurn].RED = reaction;
+    saveState(false);
+    if (options.render !== false) renderSimulation();
+    if (options.showToast !== false) {
+      toast(reaction.reactionSource === "ai" ? "已使用語言模型生成紅方反應。" : "已使用離線規則生成紅方反應。");
+    }
+    return reaction;
+  }
+
+  function autoFillOrders(options = {}) {
     if (!state.scenario) return;
     const rng = mulberry32(state.scenario.seed + state.currentTurn * 991);
     state.orders[state.currentTurn] ||= {};
     const actors = state.scenario.amberSupport === "none" ? ["BLUE", "RED"] : ["BLUE", "RED", "AMBER"];
     actors.forEach(actor => {
+      if (options.skipRed && actor === "RED") return;
       if (state.orders[state.currentTurn][actor]) return;
+      if (actor === "RED" && state.orders[state.currentTurn].BLUE) {
+        state.orders[state.currentTurn].RED = buildRuleBasedRedReaction(state.orders[state.currentTurn].BLUE);
+        return;
+      }
       const action = pick(ACTIONS[actor], rng)[0];
       const zone = pick(DATA.zones.filter(z => z.zone_id !== "Z-REAR" || actor === "AMBER"), rng).zone_id;
       state.orders[state.currentTurn][actor] = {
@@ -891,8 +1110,8 @@
       };
     });
     saveState(false);
-    renderSimulation();
-    toast("已自動補齊尚未提交的角色命令。");
+    if (options.render !== false) renderSimulation();
+    if (options.showToast !== false) toast("已自動補齊尚未提交的角色命令。");
   }
 
   function actionEffect(actor, actionName) {
@@ -938,9 +1157,17 @@
     state.status.BLUE.civilianRisk = clamp(state.status.BLUE.civilianRisk + Number(event.civilian_risk_delta || 0));
   }
 
-  function resolveTurn() {
-    if (!state.scenario || state.currentTurn > state.scenario.turns) return;
-    autoFillOrders();
+  async function resolveTurn() {
+    if (!state.scenario || state.currentTurn > state.scenario.turns || state.turnBusy) return;
+    state.turnBusy = true;
+    $("resolveTurnBtn").disabled = true;
+    $("resolveTurnBtn").textContent = "結算中…";
+    try {
+      autoFillOrders({ skipRed: true, render: false, showToast: false });
+      if (!state.orders[state.currentTurn]?.RED) {
+        await generateRedReaction({ render: false, showToast: false });
+      }
+      autoFillOrders({ render: false, showToast: false });
     const orders = state.orders[state.currentTurn] || {};
     const rng = mulberry32(state.scenario.seed + state.currentTurn * 7919 + hashText(JSON.stringify(orders)));
     const difficulty = DIFFICULTY[state.scenario.difficulty];
@@ -1003,6 +1230,11 @@
     renderSimulation();
     renderAAR();
     toast(state.currentTurn > state.scenario.turns ? "推演完成，可進行課後檢討。" : "本回合已結算。");
+    } finally {
+      state.turnBusy = false;
+      $("resolveTurnBtn").textContent = "結算本回合";
+      renderSimulation();
+    }
   }
 
   function renderNarrative() {
@@ -1325,7 +1557,8 @@
     $("civilPressure").addEventListener("input", updateRangeLabels);
     $("orderActor").addEventListener("change", updateActionOptions);
     $("orderForm").addEventListener("submit", submitOrder);
-    $("autoOrdersBtn").addEventListener("click", autoFillOrders);
+    $("redReactionBtn").addEventListener("click", () => generateRedReaction());
+    $("autoOrdersBtn").addEventListener("click", () => autoFillOrders());
     $("resolveTurnBtn").addEventListener("click", resolveTurn);
     $("clearRunBtn").addEventListener("click", resetRun);
     $("saveBtn").addEventListener("click", () => saveState(true));
