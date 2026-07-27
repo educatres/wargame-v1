@@ -1,0 +1,436 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <meta name="description" content="臺海衝突課程用想定生成與回合推演系統。所有作戰參數均為合成資料。">
+  <title>臺海課程想定生成與兵推系統</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <p class="eyebrow">教育模擬 · 離線執行 · 合成資料</p>
+      <h1>臺海課程想定生成與兵推系統</h1>
+      <p class="subtitle">用於情勢判斷、資源配置、情報不確定性、危機管理與課後檢討。</p>
+    </div>
+    <div class="header-actions">
+      <button id="saveBtn" class="secondary">儲存進度</button>
+      <button id="exportBtn" class="secondary">匯出 JSON</button>
+      <label class="file-button secondary">
+        匯入 JSON
+        <input id="importInput" type="file" accept=".json,application/json">
+      </label>
+    </div>
+  </header>
+
+  <aside class="safety-banner" role="note">
+    <strong>安全與教學界線：</strong>
+    本系統不含精確軍事座標、真實單位部署、現役庫存、弱點、射擊表或可靠的實戰命中／攔截率。
+    所有兵力、效能、損失及事件結果均為合成資料，不得用於真實作戰規劃。
+  </aside>
+
+  <nav class="tabs" aria-label="主要功能">
+    <button class="tab active" data-tab="builder">一、想定生成</button>
+    <button class="tab" data-tab="simulation">二、回合推演</button>
+    <button class="tab" data-tab="aar">三、檢討</button>
+    <button class="tab" data-tab="library">四、資料庫</button>
+    <button class="tab" data-tab="guide">五、指引</button>
+  </nav>
+
+  <main>
+    <section id="builder" class="panel active">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">Scenario Builder</p>
+          <h2>建立課程想定</h2>
+        </div>
+        <span class="badge">離線規則＋可選 AI</span>
+      </div>
+
+      <div class="two-column">
+        <form id="scenarioForm" class="card form-grid">
+          <label>
+            想定名稱
+            <input id="scenarioName" value="海峽警戒與有限封控：72小時聯合決策演練">
+          </label>
+          <label>
+            隨機種子
+            <input id="scenarioSeed" type="number" value="20260727" min="1">
+          </label>
+          <label>
+            教學重點
+            <select id="focus">
+              <option value="joint">聯合決策與整體情勢</option>
+              <option value="airdefense">防空資源與預警</option>
+              <option value="logistics">後勤持續性與修復</option>
+              <option value="intelligence">情報判讀與戰場迷霧</option>
+              <option value="civil">民事韌性與危機溝通</option>
+              <option value="diplomacy">升級控制與外交協調</option>
+            </select>
+          </label>
+          <label>
+            難度
+            <select id="difficulty">
+              <option value="intro">基礎</option>
+              <option value="standard" selected>標準</option>
+              <option value="advanced">進階</option>
+            </select>
+          </label>
+          <label>
+            回合數
+            <input id="turns" type="number" value="12" min="4" max="24">
+          </label>
+          <label>
+            每回合時數
+            <select id="hoursPerTurn">
+              <option value="3">3小時</option>
+              <option value="6" selected>6小時</option>
+              <option value="12">12小時</option>
+            </select>
+          </label>
+          <label>
+            情報不確定度
+            <input id="uncertainty" type="range" min="1" max="5" value="3">
+            <output id="uncertaintyValue">3</output>
+          </label>
+          <label>
+            民事壓力
+            <input id="civilPressure" type="range" min="1" max="5" value="3">
+            <output id="civilPressureValue">3</output>
+          </label>
+          <label>
+            美軍支援程度
+            <select id="amberSupport">
+              <option value="none">不納入</option>
+              <option value="indirect" selected>間接支援：ISR、後勤、外交</option>
+              <option value="limited">有限海空存在與防護支援</option>
+            </select>
+          </label>
+          <label>
+            初始天候
+            <select id="weatherPreset">
+              <option value="stable">穩定</option>
+              <option value="variable" selected>多變</option>
+              <option value="adverse">不利</option>
+            </select>
+          </label>
+          <label class="full">
+            教師補充限制
+            <textarea id="teacherConstraints" rows="3" placeholder="例如：避免升高衝突；不得以單純戰果作為唯一評分。">避免升高衝突；需保留後續回合資源；納入商船、人道與資訊環境。</textarea>
+          </label>
+          <div class="full actions">
+            <button type="submit" class="primary">離線生成想定</button>
+            <button type="button" id="loadDemoBtn" class="secondary">載入預設示範</button>
+          </div>
+        </form>
+
+        <div class="stack">
+          <article class="card">
+            <h3>生成器設計</h3>
+            <ol class="compact-list">
+              <li>依學習目標選擇任務、限制與評量重點。</li>
+              <li>使用抽象區域、能力指數及合成兵力包。</li>
+              <li>配置情報落差、天候、民事與外交事件。</li>
+              <li>建立每回合事件排程與成功條件。</li>
+              <li>保留教師人工修改與白方裁決權。</li>
+            </ol>
+          </article>
+          <article class="card ai-settings">
+            <div class="subheading">
+              <div>
+                <p class="eyebrow">Optional AI</p>
+                <h3>AI 語言模型設定</h3>
+              </div>
+              <span class="badge" id="aiProviderBadge">長庚 CGU</span>
+            </div>
+            <div class="form-grid ai-form-grid">
+              <label>
+                API 服務
+                <select id="apiProvider">
+                  <option value="cgu" selected>長庚 CGU LLM API</option>
+                  <option value="openai">OpenAI API</option>
+                  <option value="google">Google AI Studio / Gemini API</option>
+                  <option value="anthropic">Anthropic / Claude API</option>
+                </select>
+              </label>
+              <label>
+                模型
+                <input id="apiModel" list="modelOptions" value="gpt-5.4-mini" autocomplete="off" spellcheck="false" placeholder="輸入模型名稱">
+                <datalist id="modelOptions">
+                  <option value="gpt-5.5"></option>
+                  <option value="gpt-5.4"></option>
+                  <option value="gpt-5.4-mini"></option>
+                  <option value="gpt-4.1"></option>
+                  <option value="gpt-4.1-mini"></option>
+                  <option value="gemini-2.5-pro"></option>
+                  <option value="gemini-2.5-flash"></option>
+                  <option value="gemini-2.5-flash-lite"></option>
+                  <option value="claude-sonnet-4-20250514"></option>
+                  <option value="claude-opus-4-20250514"></option>
+                </datalist>
+              </label>
+              <label class="full">
+                Endpoint
+                <input id="apiEndpoint" type="url" value="https://air.cgu.edu.tw/cgullmapi/v1" autocomplete="off" spellcheck="false" placeholder="API base URL 或完整 endpoint">
+              </label>
+              <label class="full">
+                API Key / Authorization
+                <input id="apiKey" type="password" autocomplete="off" spellcheck="false" placeholder="輸入 API Key 或 Bearer token">
+              </label>
+            </div>
+            <p class="footnote">API Key 只保留在此頁記憶體，不會寫入瀏覽器進度、JSON 或 CSV。送出時，表單中的合成教學設定會傳給所選服務。</p>
+            <div class="actions ai-actions">
+              <button type="button" id="generateAiBtn" class="primary">使用 AI 生成想定</button>
+              <button type="button" id="toggleApiKeyBtn" class="secondary" aria-pressed="false">顯示 Key</button>
+            </div>
+            <div id="aiStatus" class="api-status" role="status" aria-live="polite">輸入 API Key 後，可使用 AI 生成敘事、事件與情報。</div>
+          </article>
+          <article class="callout">
+            <h3>不採用真實武器勝負查表</h3>
+            <p>系統使用「能力、準備、感測、後勤、指揮、環境」等抽象指數，輸出決策後果及不確定性，而非宣稱某武器必定擊敗另一武器。</p>
+          </article>
+        </div>
+      </div>
+
+      <div id="scenarioPreview" class="preview empty-state">
+        尚未生成想定。調整左側參數後按下「生成想定」。
+      </div>
+    </section>
+
+    <section id="simulation" class="panel">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">Turn-based Simulation</p>
+          <h2>回合推演</h2>
+        </div>
+        <div class="turn-controls">
+          <span id="turnBadge" class="badge">尚未開始</span>
+          <button id="resolveTurnBtn" class="primary">結算本回合</button>
+        </div>
+      </div>
+
+      <div id="simulationEmpty" class="empty-state">
+        請先至「想定生成」建立或載入一個想定。
+      </div>
+
+      <div id="simulationContent" hidden>
+        <div id="statusCards" class="metric-grid"></div>
+
+        <div class="simulation-layout">
+          <section class="card">
+            <div class="subheading">
+              <h3>概略情勢圖</h3>
+              <span class="muted">不含座標與真實部署</span>
+            </div>
+            <div id="zoneMap" class="zone-map" aria-label="抽象臺海區域圖"></div>
+            <div class="legend">
+              <span><i class="dot blue"></i>藍方壓力／行動</span>
+              <span><i class="dot red"></i>紅方壓力／行動</span>
+              <span><i class="dot amber"></i>外部支援</span>
+              <span><i class="dot neutral"></i>民事／天候事件</span>
+            </div>
+          </section>
+
+          <form id="orderForm" class="card form-grid">
+            <div class="full subheading">
+              <h3>下達回合命令</h3>
+              <span id="orderStatus" class="muted">每方每回合一項主要行動</span>
+            </div>
+            <label>
+              角色
+              <select id="orderActor">
+                <option value="BLUE">藍方（臺灣）</option>
+                <option value="RED">紅方（中國大陸）</option>
+                <option value="AMBER">琥珀方（美軍支援）</option>
+              </select>
+            </label>
+            <label>
+              行動
+              <select id="orderAction"></select>
+            </label>
+            <label>
+              目標區域
+              <select id="orderZone"></select>
+            </label>
+            <label>
+              投入資源點數
+              <input id="orderResource" type="number" min="5" max="35" value="20">
+            </label>
+            <label class="full">
+              決策理由
+              <textarea id="orderRationale" rows="3" placeholder="學生需說明目標、假設、風險與保留方案。"></textarea>
+            </label>
+            <div class="full actions">
+              <button type="submit" class="primary">提交／更新命令</button>
+              <button type="button" id="autoOrdersBtn" class="secondary">自動補齊其他角色</button>
+            </div>
+            <div id="currentOrders" class="full order-list"></div>
+          </form>
+        </div>
+
+        <div class="three-column">
+          <article class="card">
+            <h3>本回合情報</h3>
+            <div id="intelPanel"></div>
+          </article>
+          <article class="card">
+            <h3>天候與環境</h3>
+            <div id="weatherPanel"></div>
+          </article>
+          <article class="card">
+            <h3>事件／導調訊息</h3>
+            <div id="eventPanel"></div>
+          </article>
+        </div>
+
+        <article class="card">
+          <div class="subheading">
+            <h3>回合紀錄</h3>
+            <button id="clearRunBtn" class="danger">重設推演</button>
+          </div>
+          <div id="turnNarrative" class="narrative"></div>
+        </article>
+
+        <article class="card intercept-card">
+          <div class="subheading">
+            <div>
+              <h3>攔截資源配置教學實驗</h3>
+              <p class="muted">僅用合成機率比較資源配置，不代表真實系統。</p>
+            </div>
+          </div>
+          <div class="lab-grid">
+            <label>來襲目標數<input id="labIncoming" type="number" min="1" max="20" value="3"></label>
+            <label>配置攔截次數<input id="labShots" type="number" min="1" max="20" value="4"></label>
+            <label>單次基準機率<input id="labBaseP" type="range" min="20" max="70" value="43"><output id="labBasePValue">43%</output></label>
+            <label>偵測品質<input id="labDetection" type="range" min="40" max="100" value="78"><output id="labDetectionValue">78%</output></label>
+            <label>系統準備度<input id="labReadiness" type="range" min="40" max="100" value="80"><output id="labReadinessValue">80%</output></label>
+            <label>海象<input id="labSea" type="range" min="1" max="5" value="3"><output id="labSeaValue">3</output></label>
+            <label>干擾程度<input id="labJamming" type="range" min="0" max="50" value="22"><output id="labJammingValue">22%</output></label>
+          </div>
+          <div id="labResults" class="metric-grid"></div>
+          <p class="footnote">模型假設各次嘗試近似獨立，真實情境可能存在共同感測失敗、指管延遲、飽和攻擊及射擊窗口限制。</p>
+        </article>
+      </div>
+    </section>
+
+    <section id="aar" class="panel">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">After Action Review</p>
+          <h2>課後檢討與學習分析</h2>
+        </div>
+        <div class="header-actions">
+          <button id="exportCsvBtn" class="secondary">匯出回合 CSV</button>
+          <button id="printBtn" class="secondary">列印／存成 PDF</button>
+        </div>
+      </div>
+      <div id="aarEmpty" class="empty-state">尚無推演紀錄。</div>
+      <div id="aarContent" hidden>
+        <div id="aarMetrics" class="metric-grid"></div>
+        <div class="two-column">
+          <article class="card">
+            <h3>主要發現</h3>
+            <div id="aarInsights"></div>
+          </article>
+          <article class="card">
+            <h3>學生反思題</h3>
+            <ol class="compact-list">
+              <li>當時最重要的假設是什麼？後來是否成立？</li>
+              <li>哪一項情報最影響決策？其可信度是否足夠？</li>
+              <li>是否為後續回合保留足夠資源？</li>
+              <li>如何平衡防護、民事風險與升級控制？</li>
+              <li>若重做一次，會改變哪一項決策？</li>
+            </ol>
+          </article>
+        </div>
+        <article class="card table-card">
+          <h3>決策時間線</h3>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>回合</th><th>主要事件</th><th>藍方決策</th><th>紅方決策</th><th>美軍支援</th><th>結果摘要</th>
+                </tr>
+              </thead>
+              <tbody id="timelineBody"></tbody>
+            </table>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <section id="library" class="panel">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">Data Library</p>
+          <h2>資料庫與模型透明度</h2>
+        </div>
+        <input id="librarySearch" class="search" placeholder="搜尋來源、能力或兵力包">
+      </div>
+      <div class="library-notice">
+        <strong>藍底：</strong>真實公開來源目錄與少量公告樣本；
+        <strong>綠底：</strong>課程用合成資料。
+      </div>
+      <div class="library-tabs">
+        <button class="mini-tab active" data-library="sources">公開來源</button>
+        <button class="mini-tab" data-library="capabilities">合成能力</button>
+        <button class="mini-tab" data-library="forces">合成兵力包</button>
+        <button class="mini-tab" data-library="activity">公開活動樣本</button>
+      </div>
+      <div id="libraryContent"></div>
+    </section>
+
+    <section id="guide" class="panel">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">Guide</p>
+          <h2>建議流程</h2>
+        </div>
+      </div>
+      <div class="timeline-guide">
+        <article><span>1</span><div><h3>情境簡報</h3><p>教師發布任務、限制、角色及各組不同版本的初始情報。</p></div></article>
+        <article><span>2</span><div><h3>任務分析</h3><p>學生區分已知事實、推測與未知，提出最可能及最危險的對手行動。</p></div></article>
+        <article><span>3</span><div><h3>行動方案</h3><p>至少提出兩個方案，比較資源、後勤、民事與升級風險。</p></div></article>
+        <article><span>4</span><div><h3>回合推演</h3><p>提交命令、接收新情報、由規則引擎與白方共同裁決。</p></div></article>
+        <article><span>5</span><div><h3>課後檢討</h3><p>回放決策歷程，討論錯誤假設、機會成本及替代方案。</p></div></article>
+      </div>
+      <div class="two-column">
+        <article class="card">
+          <h3>建議評分構面</h3>
+          <ul class="compact-list">
+            <li>任務與成功條件定義：20%</li>
+            <li>情報可信度與不確定性處理：20%</li>
+            <li>資源、後勤及時間管理：20%</li>
+            <li>紅隊思維與應變能力：15%</li>
+            <li>民事、法律及升級風險：15%</li>
+            <li>課後反思與證據使用：10%</li>
+          </ul>
+        </article>
+        <article class="card">
+          <h3>適用課程</h3>
+          <ul class="compact-list">
+            <li>國家安全與戰略研究</li>
+            <li>聯合作戰與指參作業</li>
+            <li>情報分析與決策科學</li>
+            <li>國防資源、後勤與韌性</li>
+            <li>危機管理、國際關係與軍事倫理</li>
+            <li>建模模擬、資料庫與AI輔助決策</li>
+          </ul>
+        </article>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <span>版本 1.0 · 純 HTML/CSS/JavaScript · 可部署 GitHub Pages</span>
+    <span>資料只儲存在使用者瀏覽器，除非主動匯出。</span>
+  </footer>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <script src="data/demo-data.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

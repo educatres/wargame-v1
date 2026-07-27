@@ -1,0 +1,1783 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>聽眾舉手統計</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f6f7f9;
+      --panel: #ffffff;
+      --ink: #1c2430;
+      --muted: #687487;
+      --line: #dfe5ee;
+      --brand: #146c70;
+      --brand-strong: #0f5053;
+      --accent: #b7791f;
+      --danger: #b42318;
+      --good: #177245;
+      --blue: #315b9f;
+      --shadow: 0 16px 38px rgba(30, 40, 55, 0.10);
+      --radius: 8px;
+      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background:
+        linear-gradient(180deg, rgba(20, 108, 112, 0.08), rgba(246, 247, 249, 0) 260px),
+        var(--bg);
+      color: var(--ink);
+      transition: background 0.25s ease;
+    }
+
+    body.dashboard-mode {
+      background: #101820;
+    }
+
+    body.dashboard-mode.dashboard-low {
+      background: #b42318;
+    }
+
+    body.dashboard-mode.dashboard-high {
+      background: #177245;
+    }
+
+    button,
+    input,
+    select {
+      font: inherit;
+    }
+
+    button {
+      border: 1px solid transparent;
+      border-radius: var(--radius);
+      min-height: 42px;
+      padding: 0 14px;
+      cursor: pointer;
+      font-weight: 700;
+      transition: transform 0.15s ease, border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+      white-space: nowrap;
+    }
+
+    button:hover:not(:disabled) {
+      transform: translateY(-1px);
+    }
+
+    button:disabled {
+      cursor: not-allowed;
+      opacity: 0.55;
+    }
+
+    input,
+    select {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      min-height: 42px;
+      padding: 9px 11px;
+      background: #fff;
+      color: var(--ink);
+      outline: none;
+    }
+
+    input:focus,
+    select:focus {
+      border-color: var(--brand);
+      box-shadow: 0 0 0 3px rgba(20, 108, 112, 0.16);
+    }
+
+    .shell {
+      width: min(1260px, calc(100vw - 32px));
+      margin: 0 auto;
+      padding: 28px 0 38px;
+    }
+
+    .dashboard-toggle {
+      position: fixed;
+      right: 18px;
+      top: 18px;
+      z-index: 50;
+      background: #17212f;
+      border-color: #17212f;
+      color: #fff;
+      box-shadow: 0 12px 26px rgba(14, 21, 31, 0.24);
+    }
+
+    .dashboard-display {
+      display: none;
+    }
+
+    .topbar {
+      display: flex;
+      justify-content: space-between;
+      gap: 18px;
+      align-items: flex-start;
+      margin-bottom: 20px;
+    }
+
+    .title h1 {
+      margin: 0;
+      font-size: clamp(26px, 4vw, 42px);
+      line-height: 1.08;
+      letter-spacing: 0;
+    }
+
+    .title p {
+      margin: 10px 0 0;
+      color: var(--muted);
+      max-width: 760px;
+      line-height: 1.6;
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: minmax(0, 1.35fr) minmax(340px, 0.65fr);
+      gap: 18px;
+      align-items: start;
+    }
+
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+    }
+
+    .camera-panel {
+      overflow: hidden;
+    }
+
+    .camera-panel.preview-hidden .video-wrap {
+      display: none;
+    }
+
+    .video-wrap {
+      position: relative;
+      min-height: 320px;
+      aspect-ratio: 16 / 10;
+      background: #111923;
+      display: grid;
+      place-items: center;
+    }
+
+    video {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: none;
+    }
+
+    .camera-panel.has-stream video {
+      display: block;
+    }
+
+    .empty-camera {
+      text-align: center;
+      color: #c8d2df;
+      padding: 26px;
+      line-height: 1.6;
+    }
+
+    .camera-panel.has-stream .empty-camera {
+      display: none;
+    }
+
+    .live-badge {
+      position: absolute;
+      left: 14px;
+      top: 14px;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 30px;
+      padding: 4px 10px;
+      border-radius: 999px;
+      color: #fff;
+      background: rgba(13, 19, 28, 0.72);
+      font-size: 13px;
+      font-weight: 800;
+      letter-spacing: 0;
+      backdrop-filter: blur(10px);
+    }
+
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #8492a6;
+    }
+
+    .dot.on {
+      background: #24b47e;
+      box-shadow: 0 0 0 5px rgba(36, 180, 126, 0.20);
+    }
+
+    .camera-actions,
+    .settings,
+    .results-head {
+      display: grid;
+      gap: 12px;
+      padding: 14px;
+      border-top: 1px solid var(--line);
+    }
+
+    .camera-actions {
+      grid-template-columns: repeat(6, minmax(0, 1fr));
+    }
+
+    .primary {
+      color: #fff;
+      background: var(--brand);
+      border-color: var(--brand);
+    }
+
+    .primary:hover:not(:disabled) {
+      background: var(--brand-strong);
+    }
+
+    .secondary {
+      color: var(--ink);
+      background: #f7f9fc;
+      border-color: var(--line);
+    }
+
+    .danger {
+      color: #fff;
+      background: var(--danger);
+      border-color: var(--danger);
+    }
+
+    .settings {
+      grid-template-columns: 0.9fr minmax(240px, 1.55fr) minmax(190px, 1.1fr) 0.8fr 0.95fr;
+      align-items: end;
+    }
+
+    .field {
+      display: grid;
+      gap: 6px;
+    }
+
+    .endpoint-field {
+      grid-column: span 2;
+    }
+
+    label {
+      color: #3b4655;
+      font-size: 13px;
+      font-weight: 800;
+    }
+
+    .side {
+      display: grid;
+      gap: 18px;
+    }
+
+    .metrics {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+      padding: 14px;
+    }
+
+    .metric {
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      padding: 12px;
+      min-height: 96px;
+      display: grid;
+      align-content: space-between;
+      background: #fbfcfe;
+    }
+
+    .metric.full {
+      grid-column: 1 / -1;
+    }
+
+    .metric .label {
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 800;
+    }
+
+    .metric .value {
+      margin-top: 10px;
+      font-size: 30px;
+      line-height: 1;
+      font-weight: 900;
+      color: var(--ink);
+      overflow-wrap: anywhere;
+    }
+
+    .metric .value.small {
+      font-size: 16px;
+      line-height: 1.4;
+      font-weight: 700;
+      color: #354254;
+    }
+
+    .ratio-panel {
+      padding: 14px;
+    }
+
+    .ratio-stat {
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: #fbfcfe;
+      padding: 14px;
+      display: grid;
+      gap: 8px;
+    }
+
+    .ratio-value {
+      font-size: 38px;
+      line-height: 1;
+      font-weight: 900;
+      color: var(--brand);
+    }
+
+    .ratio-detail {
+      color: var(--muted);
+      line-height: 1.45;
+      font-weight: 700;
+    }
+
+    .status {
+      border-top: 1px solid var(--line);
+      padding: 12px 14px;
+      min-height: 50px;
+      color: var(--muted);
+      line-height: 1.45;
+    }
+
+    .status.ok {
+      color: var(--good);
+    }
+
+    .status.warn {
+      color: var(--accent);
+    }
+
+    .status.error {
+      color: var(--danger);
+    }
+
+    .chart-panel {
+      padding: 14px;
+    }
+
+    .chart-title {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 10px;
+    }
+
+    .chart-title h2,
+    .results-head h2 {
+      margin: 0;
+      font-size: 18px;
+      letter-spacing: 0;
+    }
+
+    .chart-title span {
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .chart {
+      width: 100%;
+      height: 190px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: #fbfcfe;
+      display: block;
+    }
+
+    .results-panel {
+      margin-top: 18px;
+      overflow: hidden;
+    }
+
+    .table-wrap {
+      overflow-x: auto;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      min-width: 860px;
+    }
+
+    th,
+    td {
+      padding: 12px 14px;
+      border-top: 1px solid var(--line);
+      text-align: left;
+      vertical-align: top;
+      line-height: 1.45;
+    }
+
+    th {
+      color: #3c4654;
+      background: #f8fafc;
+      font-size: 13px;
+      font-weight: 900;
+    }
+
+    td {
+      color: #2b3645;
+      font-size: 14px;
+    }
+
+    .result-photo {
+      display: grid;
+      gap: 6px;
+      width: 96px;
+    }
+
+    .result-photo img {
+      width: 96px;
+      aspect-ratio: 16 / 10;
+      object-fit: cover;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: #111923;
+      display: block;
+    }
+
+    .result-photo a {
+      color: var(--brand);
+      font-size: 12px;
+      font-weight: 800;
+      text-decoration: none;
+    }
+
+    .result-photo a:hover {
+      text-decoration: underline;
+    }
+
+    .no-photo {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      min-height: 26px;
+      border-radius: 999px;
+      padding: 3px 9px;
+      font-size: 12px;
+      font-weight: 900;
+      background: #edf3ff;
+      color: var(--blue);
+      border: 1px solid #cfdcf4;
+    }
+
+    .pill.low {
+      background: #fff5ea;
+      color: #8b4b12;
+      border-color: #efcfaa;
+    }
+
+    .pill.medium {
+      background: #edf3ff;
+      color: var(--blue);
+      border-color: #cfdcf4;
+    }
+
+    .pill.high {
+      background: #eaf7f0;
+      color: var(--good);
+      border-color: #bfe4cd;
+    }
+
+    .empty-row {
+      text-align: center;
+      color: var(--muted);
+      padding: 24px 14px;
+    }
+
+    .hidden {
+      display: none !important;
+    }
+
+    body.dashboard-mode .shell {
+      width: min(1800px, calc(100vw - 32px));
+      min-height: 100vh;
+      padding: clamp(14px, 2vw, 30px) 0;
+    }
+
+    body.dashboard-mode .topbar,
+    body.dashboard-mode .layout {
+      display: none;
+    }
+
+    body.dashboard-mode .dashboard-display {
+      min-height: calc(100vh - clamp(28px, 4vw, 60px));
+      display: grid;
+      grid-template-rows: 1fr auto auto;
+      align-items: center;
+      color: #ffffff;
+    }
+
+    .dashboard-main {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(240px, 25vw);
+      gap: clamp(16px, 3vw, 48px);
+      align-items: center;
+      min-height: 72vh;
+    }
+
+    .dashboard-number {
+      display: grid;
+      justify-items: center;
+      align-content: center;
+      min-height: 0;
+      text-align: center;
+    }
+
+    .dashboard-pie {
+      --dashboard-pie-angle: 0deg;
+      position: relative;
+      width: min(68vh, 64vw, 760px);
+      aspect-ratio: 1;
+      border: clamp(3px, 0.5vw, 8px) solid rgba(255, 255, 255, 0.78);
+      border-radius: 50%;
+      background:
+        radial-gradient(circle at 50% 50%, rgba(16, 24, 32, 0.18) 0 24%, transparent 25%),
+        conic-gradient(#ffffff var(--dashboard-pie-angle), rgba(255, 255, 255, 0.2) 0);
+      box-shadow:
+        0 26px 64px rgba(0, 0, 0, 0.28),
+        inset 0 0 0 1px rgba(255, 255, 255, 0.25);
+      overflow: hidden;
+    }
+
+    .dashboard-pie::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      border-radius: inherit;
+      background: linear-gradient(145deg, rgba(255, 255, 255, 0.32), rgba(255, 255, 255, 0) 42%);
+      pointer-events: none;
+    }
+
+    .dashboard-pie-value {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #ffffff;
+      font-size: clamp(52px, 12vw, 170px);
+      font-weight: 950;
+      line-height: 0.9;
+      letter-spacing: 0;
+      text-shadow: 0 5px 22px rgba(0, 0, 0, 0.42);
+      z-index: 1;
+    }
+
+    .dashboard-percent-symbol {
+      font-size: 0.45em;
+      margin-left: 0.04em;
+    }
+
+    .dashboard-preview-stack {
+      display: grid;
+      gap: clamp(10px, 1.8vh, 18px);
+      align-content: center;
+    }
+
+    .dashboard-label {
+      display: none;
+    }
+
+    .dashboard-meta {
+      display: none;
+      justify-content: center;
+      gap: clamp(12px, 4vw, 72px);
+      flex-wrap: wrap;
+      padding-bottom: clamp(6px, 1.4vh, 16px);
+      color: rgba(255, 255, 255, 0.82);
+      font-size: clamp(20px, 3vw, 48px);
+      font-weight: 850;
+      text-align: center;
+    }
+
+    .dashboard-preview {
+      position: relative;
+      width: 100%;
+      aspect-ratio: 16 / 10;
+      overflow: hidden;
+      border: 1px solid rgba(255, 255, 255, 0.28);
+      border-radius: var(--radius);
+      background: rgba(8, 13, 18, 0.78);
+      box-shadow: 0 18px 44px rgba(0, 0, 0, 0.28);
+    }
+
+    .dashboard-preview video {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    .dashboard-preview.has-stream video {
+      display: block;
+    }
+
+    .dashboard-preview .empty-camera {
+      position: absolute;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      padding: 18px;
+      font-size: clamp(14px, 1.3vw, 18px);
+    }
+
+    .dashboard-preview.has-stream .empty-camera {
+      display: none;
+    }
+
+    .dashboard-status {
+      padding: 0 16px clamp(10px, 2vh, 24px);
+      color: rgba(255, 255, 255, 0.88);
+      font-size: clamp(18px, 2.3vw, 34px);
+      font-weight: 850;
+      line-height: 1.18;
+      text-align: center;
+    }
+
+    .dashboard-actions {
+      display: flex;
+      justify-content: center;
+      padding-bottom: clamp(12px, 3vh, 40px);
+    }
+
+    .dashboard-capture {
+      min-height: clamp(48px, 7vh, 84px);
+      padding: 0 clamp(18px, 4vw, 56px);
+      border-color: rgba(255, 255, 255, 0.42);
+      background: rgba(255, 255, 255, 0.94);
+      color: #101820;
+      box-shadow: 0 16px 34px rgba(0, 0, 0, 0.22);
+      font-size: clamp(18px, 2.3vw, 34px);
+      font-weight: 900;
+    }
+
+    canvas.capture {
+      display: none;
+    }
+
+    @media (max-width: 960px) {
+      .topbar,
+      .layout {
+        grid-template-columns: 1fr;
+        display: grid;
+      }
+
+      body.dashboard-mode .chart-panel {
+        grid-column: auto;
+      }
+    }
+
+    @media (max-width: 720px) {
+      .shell {
+        width: min(100vw - 20px, 1260px);
+        padding-top: 18px;
+      }
+
+      .camera-actions,
+      .settings,
+      .metrics {
+        grid-template-columns: 1fr;
+      }
+
+      .endpoint-field {
+        grid-column: auto;
+      }
+
+      .video-wrap {
+        min-height: 230px;
+        aspect-ratio: 4 / 3;
+      }
+
+      body.dashboard-mode .dashboard-display {
+        min-height: calc(100vh - 36px);
+      }
+
+      .dashboard-main {
+        grid-template-columns: 1fr;
+        grid-template-rows: minmax(0, 1fr) auto;
+        min-height: 68vh;
+      }
+
+      .dashboard-pie {
+        width: min(64vh, 86vw, 520px);
+      }
+
+      .dashboard-preview-stack {
+        justify-items: center;
+      }
+
+      .dashboard-preview {
+        width: min(100%, 360px);
+        justify-self: center;
+      }
+    }
+  </style>
+</head>
+<body>
+  <button class="dashboard-toggle" id="dashboardBtn" type="button" aria-pressed="false">Dashboard 模式</button>
+  <main class="shell">
+    <header class="topbar">
+      <div class="title">
+        <h1>聽眾舉手統計</h1>
+        <p>以鏡頭畫面定時估算現場聽眾舉手數量；自動統計只保留數字結果，手動拍攝與 Dashboard 立即拍攝會保存照片。</p>
+      </div>
+    </header>
+
+    <section class="dashboard-display" aria-live="polite">
+      <div class="dashboard-main">
+        <div class="dashboard-number">
+          <div class="dashboard-pie" id="dashboardPie" role="img" aria-label="聽眾舉手比例 0%">
+            <div class="dashboard-pie-value"><span id="dashboardRatioValue">0</span><span class="dashboard-percent-symbol">%</span></div>
+          </div>
+          <div class="dashboard-label">聽眾舉手比例</div>
+        </div>
+        <div class="dashboard-preview-stack">
+          <div class="dashboard-preview" id="dashboardPreview" aria-label="影像預覽">
+            <video id="dashboardCamera" autoplay playsinline muted></video>
+            <div class="empty-camera" id="dashboardEmptyCamera">尚未啟動鏡頭</div>
+          </div>
+        </div>
+      </div>
+      <div class="dashboard-meta">
+        <span id="dashboardRaised">0 人舉手</span>
+        <span id="dashboardTotal">共 0 人</span>
+      </div>
+      <div class="dashboard-status" id="dashboardStatus">請輸入 API key 後開始。</div>
+      <div class="dashboard-actions">
+        <button class="dashboard-capture" id="dashboardCaptureBtn" type="button">立即拍攝統計</button>
+      </div>
+    </section>
+
+    <section class="layout">
+      <div class="main-workspace">
+        <section class="panel camera-panel" id="cameraPanel">
+          <div class="video-wrap">
+            <video id="camera" autoplay playsinline muted></video>
+            <div class="empty-camera" id="emptyCamera">
+              尚未啟動鏡頭。Windows 請用 Chrome 或 Edge，允許瀏覽器使用 USB camera。
+            </div>
+            <div class="live-badge"><span class="dot" id="liveDot"></span><span id="liveText">待機</span></div>
+          </div>
+
+          <div class="camera-actions">
+            <button class="secondary" id="cameraBtn" type="button">開啟鏡頭</button>
+            <button class="secondary" id="refreshCamerasBtn" type="button">重新掃描鏡頭</button>
+            <button class="secondary" id="previewToggleBtn" type="button">隱藏影像</button>
+            <button class="primary" id="startBtn" type="button">開始統計</button>
+            <button class="secondary" id="pauseBtn" type="button" disabled>暫停</button>
+            <button class="secondary" id="captureBtn" type="button">手動拍攝</button>
+            <button class="danger" id="clearBtn" type="button">清除紀錄</button>
+          </div>
+
+          <div class="settings">
+            <div class="field">
+              <label for="apiProvider">API 服務</label>
+              <select id="apiProvider">
+                <option value="cgu" selected>長庚 CGU LLM API</option>
+                <option value="openai">OpenAI API</option>
+                <option value="google">Google AI Studio / Gemini API</option>
+                <option value="custom">自定義 endpoint</option>
+              </select>
+            </div>
+            <div class="field endpoint-field">
+              <label for="apiEndpoint">Endpoint</label>
+              <input id="apiEndpoint" type="url" autocomplete="off" spellcheck="false" value="https://air.cgu.edu.tw/cgullmapi/v1" placeholder="https://api.openai.com/v1、/responses URL 或 Gemini endpoint">
+            </div>
+            <div class="field">
+              <label for="apiKey">API key / Authorization</label>
+              <input id="apiKey" type="password" autocomplete="off" spellcheck="false" placeholder="輸入 API key 或 Bearer ...">
+            </div>
+            <div class="field">
+              <label for="model">模型</label>
+              <input id="model" type="text" list="modelOptions" autocomplete="off" spellcheck="false" value="gpt-5.4-mini" placeholder="輸入模型名稱">
+              <datalist id="modelOptions">
+                <option value="gemini-2.5-flash"></option>
+                <option value="gemini-2.5-flash-lite"></option>
+                <option value="gemini-2.5-pro"></option>
+                <option value="gpt-5.5"></option>
+                <option value="gpt-5.4"></option>
+                <option value="gpt-5.4-mini"></option>
+              </datalist>
+            </div>
+            <div class="field">
+              <label for="interval">間隔秒數</label>
+              <input id="interval" type="number" min="10" step="5" value="30">
+            </div>
+            <div class="field">
+              <label for="cameraSource">鏡頭來源</label>
+              <select id="cameraSource">
+                <option value="default" selected>自動選擇 / USB 或內建鏡頭</option>
+                <option value="user">前鏡頭</option>
+                <option value="environment">後鏡頭 / iPhone 主鏡頭</option>
+              </select>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel results-panel">
+          <div class="results-head">
+            <h2>統計紀錄</h2>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>時間</th>
+                  <th>總人數</th>
+                  <th>舉手人數</th>
+                  <th>舉手比例</th>
+                  <th>照片</th>
+                  <th>摘要</th>
+                </tr>
+              </thead>
+              <tbody id="resultsBody">
+                <tr><td class="empty-row" colspan="6">尚無統計結果</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+
+      <aside class="side">
+        <section class="panel">
+          <div class="metrics">
+            <div class="metric">
+              <div class="label">總人數</div>
+              <div class="value" id="totalPeople">0</div>
+            </div>
+            <div class="metric">
+              <div class="label">舉手人數</div>
+              <div class="value" id="raisedHands">0</div>
+            </div>
+            <div class="metric full">
+              <div class="label">最近摘要</div>
+              <div class="value small" id="summary">尚未統計</div>
+            </div>
+          </div>
+          <div class="status" id="status">請輸入 API key 後開始。</div>
+        </section>
+
+        <section class="panel chart-panel">
+          <div class="chart-title">
+            <h2>舉手比例趨勢</h2>
+            <span id="sampleCount">0 筆</span>
+          </div>
+          <svg class="chart" id="chart" viewBox="0 0 520 190" role="img" aria-label="舉手比例趨勢圖">
+            <line x1="44" y1="18" x2="44" y2="154" stroke="#cfd7e3" stroke-width="1"></line>
+            <line x1="44" y1="154" x2="496" y2="154" stroke="#cfd7e3" stroke-width="1"></line>
+            <text x="12" y="24" fill="#687487" font-size="12">100%</text>
+            <text x="20" y="158" fill="#687487" font-size="12">0%</text>
+            <text x="176" y="94" fill="#687487" font-size="13" id="chartEmpty">尚無資料</text>
+            <polyline id="chartLine" fill="none" stroke="#146c70" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"></polyline>
+            <g id="chartDots"></g>
+          </svg>
+        </section>
+
+        <section class="panel ratio-panel">
+          <div class="chart-title">
+            <h2>舉手比例</h2>
+            <span id="raisedCount">0 / 0 人</span>
+          </div>
+          <div class="ratio-stat">
+            <div class="ratio-value" id="ratio">0%</div>
+            <div class="ratio-detail" id="raisedDetail">尚未統計舉手情況</div>
+          </div>
+        </section>
+      </aside>
+    </section>
+  </main>
+
+  <canvas class="capture" id="captureCanvas"></canvas>
+
+  <script>
+    const state = {
+      stream: null,
+      timerId: null,
+      analysisController: null,
+      analysisToken: 0,
+      isRunning: false,
+      isAnalyzing: false,
+      isPreviewHidden: false,
+      isDashboardMode: false,
+      dashboardPieAnimationId: 0,
+      results: []
+    };
+
+    const API_PROVIDERS = {
+      cgu: {
+        label: "長庚 CGU LLM API",
+        endpoint: "https://air.cgu.edu.tw/cgullmapi/v1",
+        model: "gpt-5.4-mini",
+        apiStyle: "responses"
+      },
+      openai: {
+        label: "OpenAI API",
+        endpoint: "https://api.openai.com/v1",
+        model: "gpt-5.5",
+        apiStyle: "responses"
+      },
+      google: {
+        label: "Google AI Studio / Gemini API",
+        endpoint: "https://generativelanguage.googleapis.com/v1beta/interactions",
+        model: "gemini-2.5-flash",
+        apiStyle: "gemini"
+      },
+      custom: {
+        label: "自定義 endpoint",
+        endpoint: "",
+        model: "",
+        apiStyle: "responses"
+      }
+    };
+
+    const els = {
+      dashboardBtn: document.getElementById("dashboardBtn"),
+      dashboardCaptureBtn: document.getElementById("dashboardCaptureBtn"),
+      apiProvider: document.getElementById("apiProvider"),
+      apiEndpoint: document.getElementById("apiEndpoint"),
+      apiKey: document.getElementById("apiKey"),
+      model: document.getElementById("model"),
+      interval: document.getElementById("interval"),
+      cameraSource: document.getElementById("cameraSource"),
+      camera: document.getElementById("camera"),
+      dashboardCamera: document.getElementById("dashboardCamera"),
+      dashboardPreview: document.getElementById("dashboardPreview"),
+      cameraPanel: document.getElementById("cameraPanel"),
+      emptyCamera: document.getElementById("emptyCamera"),
+      canvas: document.getElementById("captureCanvas"),
+      cameraBtn: document.getElementById("cameraBtn"),
+      refreshCamerasBtn: document.getElementById("refreshCamerasBtn"),
+      previewToggleBtn: document.getElementById("previewToggleBtn"),
+      startBtn: document.getElementById("startBtn"),
+      pauseBtn: document.getElementById("pauseBtn"),
+      captureBtn: document.getElementById("captureBtn"),
+      clearBtn: document.getElementById("clearBtn"),
+      liveDot: document.getElementById("liveDot"),
+      liveText: document.getElementById("liveText"),
+      status: document.getElementById("status"),
+      dashboardPie: document.getElementById("dashboardPie"),
+      dashboardRatioValue: document.getElementById("dashboardRatioValue"),
+      dashboardRaised: document.getElementById("dashboardRaised"),
+      dashboardTotal: document.getElementById("dashboardTotal"),
+      dashboardStatus: document.getElementById("dashboardStatus"),
+      totalPeople: document.getElementById("totalPeople"),
+      raisedHands: document.getElementById("raisedHands"),
+      raisedCount: document.getElementById("raisedCount"),
+      raisedDetail: document.getElementById("raisedDetail"),
+      ratio: document.getElementById("ratio"),
+      summary: document.getElementById("summary"),
+      resultsBody: document.getElementById("resultsBody"),
+      sampleCount: document.getElementById("sampleCount"),
+      chartLine: document.getElementById("chartLine"),
+      chartDots: document.getElementById("chartDots"),
+      chartEmpty: document.getElementById("chartEmpty")
+    };
+
+    const analysisSchema = {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        total_people: {
+          type: "number",
+          description: "畫面中可見的聽課人物總數。"
+        },
+        raised_hands: {
+          type: "number",
+          description: "畫面中正在舉手或明顯把手舉起的人數。"
+        },
+        raised_ratio: {
+          type: "number",
+          description: "舉手人數除以總人數，範圍 0 到 1。"
+        },
+        summary_zh: {
+          type: "string",
+          description: "繁體中文的一句摘要。"
+        }
+      },
+      required: [
+        "total_people",
+        "raised_hands",
+        "raised_ratio",
+        "summary_zh"
+      ]
+    };
+
+    const systemPrompt = [
+      "你是現場聽眾舉手數量統計助手。",
+      "請只根據畫面中的可見行為估算群體狀態，不要辨識或推測任何人的身分、姓名、性別、年齡、種族、情緒診斷或敏感屬性。",
+      "請估算畫面中可見的聽眾總人數，以及正在舉手或明顯把手舉起的人數。",
+      "只有手臂或手掌清楚高於一般坐姿或站姿、可被合理判斷為舉手時才計入；不確定時請保守估計。",
+      "如果畫面模糊、遮擋、角度不佳或人數難以判斷，請保守估計。",
+      "輸出必須符合指定 JSON schema。summary_zh 使用繁體中文。",
+      "此結果只作為即時群體統計，不可用於個人識別或個人評分。"
+    ].join("\n");
+
+    const userPrompt = [
+      "請統計這張現場照片中的聽眾舉手情況。",
+      "請估算總人數、舉手人數、舉手比例與一句摘要。",
+      "請回傳結構化 JSON，不要包含照片或個人身份資訊。"
+    ].join("\n");
+
+    function setStatus(message, type = "") {
+      els.status.textContent = message;
+      els.status.className = `status ${type}`.trim();
+      els.dashboardStatus.textContent = message;
+    }
+
+    function updateLiveState() {
+      els.liveDot.classList.toggle("on", Boolean(state.stream));
+      if (state.isAnalyzing) {
+        els.liveText.textContent = "統計中";
+      } else if (state.isRunning) {
+        els.liveText.textContent = "自動統計";
+      } else if (state.stream) {
+        els.liveText.textContent = "鏡頭已開啟";
+      } else {
+        els.liveText.textContent = "待機";
+      }
+      els.cameraPanel.classList.toggle("has-stream", Boolean(state.stream));
+      els.dashboardPreview.classList.toggle("has-stream", Boolean(state.stream));
+      els.cameraPanel.classList.toggle("preview-hidden", state.isPreviewHidden);
+      els.previewToggleBtn.textContent = state.isPreviewHidden ? "顯示影像" : "隱藏影像";
+      els.pauseBtn.disabled = !state.isRunning;
+      els.startBtn.disabled = state.isRunning;
+    }
+
+    function togglePreviewVisibility() {
+      state.isPreviewHidden = !state.isPreviewHidden;
+      updateLiveState();
+      setStatus(state.isPreviewHidden ? "影像預覽已隱藏，統計仍會使用鏡頭畫面。" : "影像預覽已重新顯示。", "ok");
+    }
+
+    function applyDashboardTone() {
+      document.body.classList.remove("dashboard-low", "dashboard-medium", "dashboard-high");
+
+      if (!state.isDashboardMode || state.results.length === 0) {
+        return;
+      }
+
+      const ratio = state.results[0].raised_ratio;
+      if (ratio > 0.5) {
+        document.body.classList.add("dashboard-high");
+      } else {
+        document.body.classList.add("dashboard-low");
+      }
+    }
+
+    function toggleDashboardMode() {
+      state.isDashboardMode = !state.isDashboardMode;
+      document.body.classList.toggle("dashboard-mode", state.isDashboardMode);
+      els.dashboardBtn.textContent = state.isDashboardMode ? "返回完整模式" : "Dashboard 模式";
+      els.dashboardBtn.setAttribute("aria-pressed", String(state.isDashboardMode));
+      applyDashboardTone();
+    }
+
+    function getIntervalMs() {
+      const seconds = Number.parseInt(els.interval.value, 10);
+      return Math.max(Number.isFinite(seconds) ? seconds : 30, 10) * 1000;
+    }
+
+    function getProviderConfig() {
+      return API_PROVIDERS[els.apiProvider.value] || API_PROVIDERS.cgu;
+    }
+
+    function normalizeResponsesEndpoint(endpoint) {
+      const trimmed = endpoint.trim();
+      if (!trimmed) {
+        return "";
+      }
+      const withoutTrailingSlash = trimmed.replace(/\/+$/, "");
+      return /\/responses$/i.test(withoutTrailingSlash)
+        ? withoutTrailingSlash
+        : `${withoutTrailingSlash}/responses`;
+    }
+
+    function normalizeRawEndpoint(endpoint) {
+      return endpoint.trim().replace(/\/+$/, "");
+    }
+
+    function formatAuthorization(apiKey) {
+      return /^Bearer\s+/i.test(apiKey) ? apiKey : `Bearer ${apiKey}`;
+    }
+
+    function requireApiSettings() {
+      const provider = getProviderConfig();
+      const apiStyle = provider.apiStyle || "responses";
+      const endpoint = apiStyle === "responses"
+        ? normalizeResponsesEndpoint(els.apiEndpoint.value)
+        : normalizeRawEndpoint(els.apiEndpoint.value);
+      const apiKey = els.apiKey.value.trim();
+      const model = els.model.value.trim();
+
+      if (!endpoint) {
+        setStatus(apiStyle === "responses"
+          ? "請先輸入 API endpoint。可以填 base URL，系統會自動接上 /responses。"
+          : "請先輸入 Gemini API endpoint。", "error");
+        return null;
+      }
+      if (!apiKey) {
+        setStatus(`請先輸入 ${provider.label} 的 API key 或 Authorization。`, "error");
+        return null;
+      }
+      if (!model) {
+        setStatus("請先輸入模型名稱。", "error");
+        return null;
+      }
+
+      return {
+        providerLabel: provider.label,
+        apiStyle,
+        endpoint,
+        apiKey,
+        authorization: apiStyle === "responses" ? formatAuthorization(apiKey) : "",
+        model
+      };
+    }
+
+    function applyProviderPreset() {
+      const provider = getProviderConfig();
+      els.apiEndpoint.value = provider.endpoint;
+      els.model.value = provider.model;
+
+      if (els.apiProvider.value === "custom") {
+        setStatus("已切換為自定義 endpoint，請輸入 endpoint、API key 與模型名稱。", "warn");
+      } else {
+        setStatus(`已切換為 ${provider.label}，請確認 API key 後開始。`, "ok");
+      }
+    }
+
+    function isSecureCameraContext() {
+      return window.isSecureContext || ["localhost", "127.0.0.1", "::1"].includes(window.location.hostname);
+    }
+
+    function stopCamera() {
+      if (state.stream) {
+        state.stream.getTracks().forEach((track) => track.stop());
+        state.stream = null;
+      }
+      els.camera.srcObject = null;
+      els.dashboardCamera.srcObject = null;
+      updateLiveState();
+    }
+
+    function getCameraConstraints() {
+      const selected = els.cameraSource.value || "default";
+      const video = {
+        width: { ideal: 1280 },
+        height: { ideal: 720 }
+      };
+
+      if (selected.startsWith("device:")) {
+        video.deviceId = { exact: selected.slice("device:".length) };
+      } else if (selected === "user" || selected === "environment") {
+        video.facingMode = { ideal: selected };
+      }
+
+      return { video, audio: false };
+    }
+
+    async function populateCameraDevices() {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
+        return;
+      }
+
+      const currentValue = els.cameraSource.value || "default";
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const videoDevices = devices.filter((device) => device.kind === "videoinput");
+      const baseOptions = [
+        new Option("自動選擇 / USB 或內建鏡頭", "default"),
+        new Option("前鏡頭", "user"),
+        new Option("後鏡頭 / iPhone 主鏡頭", "environment")
+      ];
+
+      const deviceOptions = videoDevices.map((device, index) => {
+        const label = device.label || `鏡頭 ${index + 1}`;
+        return new Option(label, `device:${device.deviceId}`);
+      });
+
+      els.cameraSource.replaceChildren(...baseOptions, ...deviceOptions);
+
+      const hasCurrent = [...els.cameraSource.options].some((option) => option.value === currentValue);
+      els.cameraSource.value = hasCurrent ? currentValue : "default";
+    }
+
+    async function refreshCameraDevices() {
+      try {
+        await populateCameraDevices();
+        const deviceCount = [...els.cameraSource.options].filter((option) => option.value.startsWith("device:")).length;
+        setStatus(deviceCount > 0
+          ? `已找到 ${deviceCount} 個可用鏡頭，請從鏡頭來源選單選擇 USB camera。`
+          : "尚未取得鏡頭名稱。請先按「開啟鏡頭」並允許權限，再重新掃描。", "ok");
+      } catch (error) {
+        setStatus(error.message || "無法掃描鏡頭。", "error");
+      }
+    }
+
+    async function ensureCamera(forceRestart = false) {
+      if (state.stream && !forceRestart) {
+        return;
+      }
+
+      if (forceRestart) {
+        stopCamera();
+      }
+
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        throw new Error("此瀏覽器不支援鏡頭 API，Windows 請使用新版 Chrome 或 Edge。");
+      }
+
+      if (!isSecureCameraContext()) {
+        throw new Error("瀏覽器需要安全來源才能啟用鏡頭。請用 HTTPS，或在同一台電腦以 localhost / 127.0.0.1 開啟；直接用 file:// 開啟可能無法列出 USB camera。");
+      }
+
+      let stream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia(getCameraConstraints());
+      } catch (error) {
+        if (els.cameraSource.value !== "default") {
+          throw error;
+        }
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            width: { ideal: 1280 },
+            height: { ideal: 720 }
+          },
+          audio: false
+        });
+      }
+
+      state.stream = stream;
+      els.camera.srcObject = stream;
+      els.dashboardCamera.srcObject = stream;
+      await Promise.all([els.camera.play(), els.dashboardCamera.play()]);
+      await populateCameraDevices();
+      updateLiveState();
+    }
+
+    function captureFrame() {
+      if (!state.stream || !els.camera.videoWidth || !els.camera.videoHeight) {
+        throw new Error("鏡頭尚未準備好，請稍後再試。");
+      }
+
+      const maxWidth = 1024;
+      const scale = Math.min(1, maxWidth / els.camera.videoWidth);
+      const width = Math.round(els.camera.videoWidth * scale);
+      const height = Math.round(els.camera.videoHeight * scale);
+
+      els.canvas.width = width;
+      els.canvas.height = height;
+      const ctx = els.canvas.getContext("2d", { alpha: false });
+      ctx.drawImage(els.camera, 0, 0, width, height);
+
+      return els.canvas.toDataURL("image/jpeg", 0.75);
+    }
+
+    function parseImageDataUrl(imageDataUrl) {
+      const match = imageDataUrl.match(/^data:([^;]+);base64,(.+)$/);
+      if (!match) {
+        throw new Error("照片資料格式不正確。");
+      }
+      return {
+        mimeType: match[1],
+        base64Data: match[2]
+      };
+    }
+
+    function buildResponsesPayload(imageDataUrl, apiSettings) {
+      return {
+        model: apiSettings.model,
+        store: false,
+        instructions: systemPrompt,
+        input: [
+          {
+            role: "user",
+            content: [
+              { type: "input_text", text: userPrompt },
+              { type: "input_image", image_url: imageDataUrl }
+            ]
+          }
+        ],
+        text: {
+          format: {
+            type: "json_schema",
+            name: "audience_hand_count",
+            strict: true,
+            schema: analysisSchema
+          }
+        }
+      };
+    }
+
+    function buildGeminiPayload(imageDataUrl, apiSettings) {
+      const image = parseImageDataUrl(imageDataUrl);
+      return {
+        model: apiSettings.model,
+        input: [
+          { type: "text", text: `${systemPrompt}\n\n${userPrompt}` },
+          {
+            type: "image",
+            data: image.base64Data,
+            mime_type: image.mimeType
+          }
+        ],
+        response_format: {
+          type: "text",
+          mime_type: "application/json",
+          schema: analysisSchema
+        },
+        generation_config: {
+          thinking_level: "minimal"
+        }
+      };
+    }
+
+    function buildPayload(imageDataUrl, apiSettings) {
+      return apiSettings.apiStyle === "gemini"
+        ? buildGeminiPayload(imageDataUrl, apiSettings)
+        : buildResponsesPayload(imageDataUrl, apiSettings);
+    }
+
+    function extractOutputText(responseJson) {
+      if (typeof responseJson.output_text === "string") {
+        return responseJson.output_text;
+      }
+
+      const chunks = [];
+      for (const item of responseJson.output || []) {
+        for (const content of item.content || []) {
+          if (typeof content.text === "string") {
+            chunks.push(content.text);
+          }
+        }
+      }
+      return chunks.join("\n").trim();
+    }
+
+    function normalizeAnalysis(raw) {
+      const total = Math.max(0, Math.round(Number(raw.total_people) || 0));
+      const raised = Math.min(total, Math.max(0, Math.round(Number(raw.raised_hands) || 0)));
+      const fallbackRatio = total > 0 ? raised / total : 0;
+      const ratio = Number.isFinite(Number(raw.raised_ratio))
+        ? Math.min(1, Math.max(0, Number(raw.raised_ratio)))
+        : fallbackRatio;
+
+      return {
+        total_people: total,
+        raised_hands: raised,
+        raised_ratio: ratio,
+        summary_zh: String(raw.summary_zh || "未提供摘要。")
+      };
+    }
+
+    async function callVisionApi(imageDataUrl, apiSettings, signal) {
+      let response;
+      try {
+        const headers = apiSettings.apiStyle === "gemini"
+          ? {
+              "x-goog-api-key": apiSettings.apiKey,
+              "Content-Type": "application/json"
+            }
+          : {
+              "Authorization": apiSettings.authorization,
+              "Content-Type": "application/json"
+            };
+
+        response = await fetch(apiSettings.endpoint, {
+          method: "POST",
+          headers,
+          signal,
+          body: JSON.stringify(buildPayload(imageDataUrl, apiSettings))
+        });
+      } catch (error) {
+        if (error.name === "AbortError") {
+          throw error;
+        }
+        throw new Error(`無法連線到 ${apiSettings.providerLabel}：${error.message || "可能是網路、CORS、endpoint 或瀏覽器安全限制"}`);
+      }
+
+      const responseText = await response.text();
+      let responseJson;
+      try {
+        responseJson = JSON.parse(responseText);
+      } catch {
+        throw new Error(`API 回應不是 JSON：${responseText.slice(0, 180)}`);
+      }
+
+      if (!response.ok) {
+        const message = responseJson.error && responseJson.error.message
+          ? responseJson.error.message
+          : `API 請求失敗，HTTP ${response.status}`;
+        throw new Error(message);
+      }
+
+      const outputText = extractOutputText(responseJson);
+      if (!outputText) {
+        throw new Error("API 回應沒有可解析的統計文字。");
+      }
+
+      try {
+        return normalizeAnalysis(JSON.parse(outputText));
+      } catch {
+        throw new Error(`統計結果不是有效 JSON：${outputText.slice(0, 180)}`);
+      }
+    }
+
+    async function analyzeOnce(source = "manual", options = {}) {
+      const apiSettings = requireApiSettings();
+      if (!apiSettings) {
+        return;
+      }
+
+      if (state.isAnalyzing) {
+        if (!options.interrupt) {
+          setStatus("上一張照片仍在統計中，已略過這次拍攝。", "warn");
+          return;
+        }
+        if (state.analysisController) {
+          state.analysisController.abort();
+        }
+        setStatus("已中斷前一次統計，正在改用剛拍攝的畫面。", "warn");
+      }
+
+      const token = state.analysisToken + 1;
+      const controller = new AbortController();
+      state.analysisToken = token;
+      state.analysisController = controller;
+      state.isAnalyzing = true;
+      updateLiveState();
+
+      let imageDataUrl = "";
+      try {
+        await ensureCamera();
+        if (controller.signal.aborted) {
+          throw new DOMException("Aborted", "AbortError");
+        }
+        setStatus("正在統計目前畫面...", "warn");
+        imageDataUrl = captureFrame();
+        const shouldSavePhoto = source === "manual" || source === "dashboard";
+        const savedPhotoUrl = shouldSavePhoto ? imageDataUrl : "";
+        const analysis = await callVisionApi(imageDataUrl, apiSettings, controller.signal);
+        imageDataUrl = "";
+        if (controller.signal.aborted || token !== state.analysisToken) {
+          return;
+        }
+        addResult(analysis, { photoUrl: savedPhotoUrl });
+        setStatus("統計完成", "ok");
+      } catch (error) {
+        if (error.name === "AbortError" || controller.signal.aborted) {
+          if (token === state.analysisToken) {
+            setStatus("這次統計已中斷。", "warn");
+          }
+          return;
+        }
+        if (token !== state.analysisToken) {
+          return;
+        }
+        setStatus(error.message || "統計失敗。", "error");
+      } finally {
+        imageDataUrl = "";
+        if (token === state.analysisToken) {
+          state.isAnalyzing = false;
+          state.analysisController = null;
+          updateLiveState();
+        }
+      }
+    }
+
+    async function startAutoAnalysis() {
+      if (!requireApiSettings()) {
+        return;
+      }
+
+      try {
+        await ensureCamera();
+      } catch (error) {
+        setStatus(error.message || "無法啟動鏡頭。", "error");
+        updateLiveState();
+        return;
+      }
+
+      state.isRunning = true;
+      updateLiveState();
+      setStatus("自動統計已啟動。", "ok");
+      await analyzeOnce("auto");
+
+      clearInterval(state.timerId);
+      state.timerId = setInterval(() => {
+        analyzeOnce("auto");
+      }, getIntervalMs());
+    }
+
+    async function openCameraOnly() {
+      try {
+        await ensureCamera(true);
+        setStatus("鏡頭已啟動。Windows Chrome/Edge 可從鏡頭來源選單切換 USB camera。", "ok");
+      } catch (error) {
+        setStatus(error.message || "無法啟動鏡頭。", "error");
+        updateLiveState();
+      }
+    }
+
+    function pauseAutoAnalysis() {
+      state.isRunning = false;
+      clearInterval(state.timerId);
+      state.timerId = null;
+      updateLiveState();
+      setStatus("自動統計已暫停，鏡頭仍保持開啟。", "warn");
+    }
+
+    function clampRatio(value) {
+      return Math.max(0, Math.min(Number.isFinite(value) ? value : 0, 1));
+    }
+
+    function setDashboardPieRatio(ratio) {
+      const normalizedRatio = clampRatio(ratio);
+      const percent = Math.round(normalizedRatio * 100);
+      els.dashboardPie.style.setProperty("--dashboard-pie-angle", `${normalizedRatio * 360}deg`);
+      els.dashboardRatioValue.textContent = percent;
+      els.dashboardPie.setAttribute("aria-label", `聽眾舉手比例 ${percent}%`);
+    }
+
+    function animateDashboardPie(targetRatio) {
+      cancelAnimationFrame(state.dashboardPieAnimationId);
+
+      const target = clampRatio(targetRatio);
+      const duration = 1200;
+      const startedAt = performance.now();
+
+      function tick(now) {
+        const progress = Math.min((now - startedAt) / duration, 1);
+        const eased = 1 - Math.pow(1 - progress, 3);
+        setDashboardPieRatio(target * eased);
+
+        if (progress < 1) {
+          state.dashboardPieAnimationId = requestAnimationFrame(tick);
+        }
+      }
+
+      setDashboardPieRatio(0);
+      state.dashboardPieAnimationId = requestAnimationFrame(tick);
+    }
+
+    function addResult(analysis, options = {}) {
+      const result = {
+        id: crypto.randomUUID ? crypto.randomUUID() : String(Date.now() + Math.random()),
+        at: new Date(),
+        photoUrl: options.photoUrl || "",
+        ...analysis
+      };
+      state.results.unshift(result);
+      updateMetrics(result);
+      renderResults();
+      renderChart();
+      applyDashboardTone();
+    }
+
+    function formatPercent(value) {
+      return `${Math.round(value * 100)}%`;
+    }
+
+    function formatTime(date) {
+      return new Intl.DateTimeFormat("zh-TW", {
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit"
+      }).format(date);
+    }
+
+    function updateMetrics(result) {
+      els.totalPeople.textContent = result.total_people;
+      els.raisedHands.textContent = result.raised_hands;
+      els.raisedCount.textContent = `${result.raised_hands} / ${result.total_people} 人`;
+      els.ratio.textContent = formatPercent(result.raised_ratio);
+      els.raisedDetail.textContent = result.total_people > 0
+        ? `畫面中約 ${result.raised_hands} 人正在舉手。`
+        : "畫面中未偵測到可估算的聽課人物。";
+      els.summary.textContent = result.summary_zh;
+      animateDashboardPie(result.raised_ratio);
+      els.dashboardRaised.textContent = `${result.raised_hands} 人舉手`;
+      els.dashboardTotal.textContent = `共 ${result.total_people} 人`;
+    }
+
+    function renderResults() {
+      els.sampleCount.textContent = `${state.results.length} 筆`;
+
+      if (state.results.length === 0) {
+        els.resultsBody.innerHTML = '<tr><td class="empty-row" colspan="6">尚無統計結果</td></tr>';
+        return;
+      }
+
+      els.resultsBody.replaceChildren(...state.results.map((result) => {
+        const row = document.createElement("tr");
+        const photoCell = result.photoUrl
+          ? `
+            <div class="result-photo">
+              <img src="${result.photoUrl}" alt="手動拍攝照片">
+              <a href="${result.photoUrl}" download="hand-count-${result.id}.jpg">下載照片</a>
+            </div>
+          `
+          : '<span class="no-photo">未保存</span>';
+        row.innerHTML = `
+          <td>${formatTime(result.at)}</td>
+          <td>${result.total_people}</td>
+          <td>${result.raised_hands}</td>
+          <td>${formatPercent(result.raised_ratio)}</td>
+          <td>${photoCell}</td>
+          <td>${escapeHtml(result.summary_zh)}</td>
+        `;
+        return row;
+      }));
+    }
+
+    function renderChart() {
+      const ordered = [...state.results].reverse();
+      els.chartEmpty.classList.toggle("hidden", ordered.length > 0);
+
+      if (ordered.length === 0) {
+        els.chartLine.setAttribute("points", "");
+        els.chartDots.replaceChildren();
+        return;
+      }
+
+      const left = 44;
+      const right = 496;
+      const top = 18;
+      const bottom = 154;
+      const width = right - left;
+      const height = bottom - top;
+      const denom = Math.max(ordered.length - 1, 1);
+
+      const points = ordered.map((result, index) => {
+        const x = ordered.length === 1 ? left + width / 2 : left + (index / denom) * width;
+        const y = bottom - result.raised_ratio * height;
+        return { x, y, result };
+      });
+
+      els.chartLine.setAttribute("points", points.map((point) => `${point.x.toFixed(1)},${point.y.toFixed(1)}`).join(" "));
+      els.chartDots.replaceChildren(...points.map((point) => {
+        const dot = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+        dot.setAttribute("cx", point.x.toFixed(1));
+        dot.setAttribute("cy", point.y.toFixed(1));
+        dot.setAttribute("r", "4");
+        dot.setAttribute("fill", "#b7791f");
+        dot.setAttribute("stroke", "#ffffff");
+        dot.setAttribute("stroke-width", "2");
+        return dot;
+      }));
+    }
+
+    function escapeHtml(value) {
+      return String(value)
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#039;");
+    }
+
+    function clearResults() {
+      state.results = [];
+      els.totalPeople.textContent = "0";
+      els.raisedHands.textContent = "0";
+      els.raisedCount.textContent = "0 / 0 人";
+      els.ratio.textContent = "0%";
+      els.raisedDetail.textContent = "尚未統計舉手情況";
+      els.summary.textContent = "尚未統計";
+      cancelAnimationFrame(state.dashboardPieAnimationId);
+      setDashboardPieRatio(0);
+      els.dashboardRaised.textContent = "0 人舉手";
+      els.dashboardTotal.textContent = "共 0 人";
+      renderResults();
+      renderChart();
+      applyDashboardTone();
+      setStatus("紀錄已清除。", "ok");
+    }
+
+    function isEditableShortcutTarget(target) {
+      if (!(target instanceof Element)) {
+        return false;
+      }
+      return Boolean(target.closest("input, textarea, select, button, [contenteditable='true']"));
+    }
+
+    function handleDashboardShortcut(event) {
+      if (!state.isDashboardMode || event.code !== "Space" || event.repeat || isEditableShortcutTarget(event.target)) {
+        return;
+      }
+      event.preventDefault();
+      analyzeOnce("dashboard", { interrupt: true });
+    }
+
+    els.dashboardBtn.addEventListener("click", toggleDashboardMode);
+    els.dashboardCaptureBtn.addEventListener("click", () => analyzeOnce("dashboard", { interrupt: true }));
+    document.addEventListener("keydown", handleDashboardShortcut);
+    els.apiProvider.addEventListener("change", applyProviderPreset);
+    els.cameraBtn.addEventListener("click", openCameraOnly);
+    els.refreshCamerasBtn.addEventListener("click", refreshCameraDevices);
+    els.previewToggleBtn.addEventListener("click", togglePreviewVisibility);
+    els.startBtn.addEventListener("click", startAutoAnalysis);
+    els.pauseBtn.addEventListener("click", pauseAutoAnalysis);
+    els.captureBtn.addEventListener("click", () => analyzeOnce("manual"));
+    els.clearBtn.addEventListener("click", clearResults);
+
+    els.cameraSource.addEventListener("change", async () => {
+      if (!state.stream) {
+        return;
+      }
+
+      try {
+        await ensureCamera(true);
+        setStatus("鏡頭來源已切換。", "ok");
+      } catch (error) {
+        setStatus(error.message || "無法切換鏡頭來源。", "error");
+      }
+    });
+
+    els.interval.addEventListener("change", () => {
+      if (!state.isRunning) {
+        return;
+      }
+      clearInterval(state.timerId);
+      state.timerId = setInterval(() => analyzeOnce("auto"), getIntervalMs());
+      setStatus("間隔已更新。", "ok");
+    });
+
+    if (navigator.mediaDevices && navigator.mediaDevices.addEventListener) {
+      navigator.mediaDevices.addEventListener("devicechange", populateCameraDevices);
+    }
+
+    populateCameraDevices();
+
+    window.addEventListener("beforeunload", () => {
+      clearInterval(state.timerId);
+      stopCamera();
+    });
+
+    renderChart();
+    updateLiveState();
+  </script>
+</body>
+</html>
